@@ -1,6 +1,16 @@
-
 import React, { useEffect, useState } from "react";
-import { useGetTicketsQuery } from "./app/features/tickets/ticketsSlice";
+import {
+  useFilterTicketsMutation,
+  useGetTicketsQuery,
+} from "./app/features/tickets/ticketsSlice";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "./components/ui/pagination";
 
 interface Ticket {
   id: number;
@@ -11,35 +21,61 @@ interface Ticket {
 
 function App() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [agenceFilter, setAgenceFilter] = useState("");
-  const [prixFilter, setPrixFilter] = useState(0);
-
-  const {data, error, isLoading} = useGetTicketsQuery();
-  console.log(error);
-
-  
+  const [agence, setAgence] = useState<string>("");
+  const [prixMin, setPrixMin] = useState<number>(0);
+  const [prixMax, setPrixMax] = useState<number>(0);
+  const [filterTickets] = useFilterTicketsMutation();
+  const { data, error, isLoading } = useGetTicketsQuery();
+  const [totalPages, setTotalPages] = useState(1);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const itemsPerPage = 10;
 
   useEffect(() => {
-    if (data) {
-      setTickets(data);
-    }
-  }, [data]);
+    const fetchFiltered = async () => {
+      try {
+        if (agence || prixMin || prixMax) {
+          const response = await filterTickets({
+            agence,
+            priceMin: prixMin,
+            priceMax: prixMax,
+            page: currentPage,
+            limit: itemsPerPage,
+          }).unwrap();
 
-  const filteredTickets = tickets.filter(
-    (ticket) =>
-      (agenceFilter === "" || ticket.agence === agenceFilter) &&
-      (prixFilter === 0 || ticket.prix === prixFilter)
-  );
+          setTickets(response.data);
+          setTotalPages(response.totalPages);
+        } else if (data) {
+          const total = data.length;
+          const startIndex = (currentPage - 1) * itemsPerPage;
+          const endIndex = startIndex + itemsPerPage;
+          setTickets(data.slice(startIndex, endIndex));
+          setTotalPages(Math.ceil(total / itemsPerPage));
+        }
+      } catch (error) {
+        console.error("Erreur de filtrage :", error);
+      }
+    };
 
-  const agences = Array.from(new Set(tickets.map((t) => t.agence)));
+    fetchFiltered();
+  }, [agence, prixMin, prixMax, currentPage, data]);
+
+  const agences = Array.from(new Set((data || []).map((t) => t.agence)));
+
+  if (isLoading) return <div>Loading...</div>;
 
   return (
     <div className="p-6 font-sans">
       <h1 className="mb-4 font-bold text-2xl text-center">Liste des billets de bus</h1>
+
+      {/* Filtres */}
       <div className="flex gap-4 mb-6">
         <select
           className="p-2 border rounded"
-          onChange={(e) => setAgenceFilter(e.target.value)}
+          value={agence}
+          onChange={(e) => {
+            setCurrentPage(1);
+            setAgence(e.target.value);
+          }}
         >
           <option value="">Toutes les agences</option>
           {agences.map((a) => (
@@ -51,18 +87,29 @@ function App() {
 
         <input
           type="number"
-          placeholder="Prix"
+          placeholder="Prix minimum"
           className="p-2 border rounded"
-          onChange={(e) => setPrixFilter(Number(e.target.value))}
+          onChange={(e) => {
+            setCurrentPage(1);
+            setPrixMin(Number(e.target.value));
+          }}
+        />
+
+        <input
+          type="number"
+          placeholder="Prix maximum"
+          className="p-2 border rounded"
+          onChange={(e) => {
+            setCurrentPage(1);
+            setPrixMax(Number(e.target.value));
+          }}
         />
       </div>
 
+      {/* Tickets */}
       <ul className="space-y-2">
-        {filteredTickets.map((ticket) => (
-          <li
-            key={ticket.id}
-            className="bg-white shadow-sm p-4 border rounded"
-          >
+        {tickets.map((ticket) => (
+          <li key={ticket.id} className="bg-white shadow-sm p-4 border rounded">
             <p>
               <strong>Agence:</strong> {ticket.agence}
             </p>
@@ -75,6 +122,40 @@ function App() {
           </li>
         ))}
       </ul>
+
+      {/* Pagination */}
+      <Pagination className="mt-4">
+        <PaginationContent>
+          <PaginationItem>
+            <PaginationPrevious
+              onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+              className={currentPage === 1 ? "pointer-events-none opacity-50" : ""}
+            />
+          </PaginationItem>
+
+          {Array.from({ length: totalPages }, (_, index) => {
+            const page = index + 1;
+            return (
+              <PaginationItem key={page}>
+                <PaginationLink
+                  isActive={currentPage === page}
+                  onClick={() => setCurrentPage(page)}
+                  className={currentPage === page ? "bg-primary text-white" : ""}
+                >
+                  {page}
+                </PaginationLink>
+              </PaginationItem>
+            );
+          })}
+
+          <PaginationItem>
+            <PaginationNext
+              onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+              className={currentPage === totalPages ? "pointer-events-none opacity-50" : ""}
+            />
+          </PaginationItem>
+        </PaginationContent>
+      </Pagination>
     </div>
   );
 }
